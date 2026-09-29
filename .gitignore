@@ -5,3 +5,4 @@ test/engine_cli
 test/audio/
 __pycache__/
 /install.sh.tmp
+build/
