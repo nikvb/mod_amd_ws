@@ -1,0 +1,342 @@
+{
+ "freeswitch": "FreeSWITCH Version 1.10.12-release+git~20240802T210227Z~a88d069d6f~64bit (git a88d069 2024-08-02 21:02:27Z 64bit)",
+ "cpu": "Intel(R) Xeon(R) CPU E5-2420 0 @ 1.90GHz",
+ "cpus": 12,
+ "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35",
+ "calls": 600,
+ "concurrency": 200,
+ "oracle": true,
+ "results": [
+  {
+   "mode": "baseline",
+   "calls": 600,
+   "lost": 0,
+   "latency_ms": {
+    "p50": 2510.0035667419434,
+    "p90": 2520.005941390991,
+    "p99": 2520.03812789917,
+    "max": 2540.0309562683105
+   },
+   "latency_ms_by_label": {
+    "human": 2500.0641345977783,
+    "machine": 2519.9429988861084
+   },
+   "false_machine_rate": 0.0,
+   "false_human_rate": 0.0,
+   "notsure": 600,
+   "oracle": false,
+   "cpu_s": 14.14,
+   "cpu_ms_per_call_total": 23.566666666666666,
+   "cpu_ms_per_call_detection": null,
+   "cpu_pct_avg": 156.20268861341324,
+   "cpu_pct_per_concurrent_call_detection": null,
+   "rss_mb": 178.203125,
+   "confusion": {
+    "human->-": 360,
+    "machine->-": 240
+   },
+   "per_file": {
+    "human_hello": {
+     "-/-": 60
+    },
+    "human_hello_2words": {
+     "-/-": 60
+    },
+    "human_late_hello": {
+     "-/-": 60
+    },
+    "human_long_greeting": {
+     "-/-": 60
+    },
+    "human_noisy": {
+     "-/-": 60
+    },
+    "human_quiet": {
+     "-/-": 60
+    },
+    "machine_greeting": {
+     "-/-": 60
+    },
+    "machine_long_word": {
+     "-/-": 60
+    },
+    "machine_short": {
+     "-/-": 60
+    },
+    "machine_silent_start": {
+     "-/-": 60
+    }
+   }
+  },
+  {
+   "mode": "mod_amd",
+   "calls": 600,
+   "lost": 0,
+   "latency_ms": {
+    "p50": 1960.0160121917725,
+    "p90": 3564.030957221986,
+    "p99": 4900.265300273895,
+    "max": 5038.995027542114
+   },
+   "latency_ms_by_label": {
+    "human": 2039.9733781814575,
+    "machine": 1890.0004625320435
+   },
+   "false_machine_rate": 0.7972222222222223,
+   "false_human_rate": 0.025,
+   "notsure": 3,
+   "oracle": false,
+   "cpu_s": 14.31,
+   "cpu_ms_per_call_total": 23.85,
+   "cpu_ms_per_call_detection": 4.706401866998006,
+   "cpu_pct_avg": 147.39685874859762,
+   "cpu_pct_per_concurrent_call_detection": 0.14543162499036505,
+   "rss_mb": 178.453125,
+   "confusion": {
+    "human->HUMAN": 70,
+    "human->MACHINE": 287,
+    "human->NOTSURE": 3,
+    "machine->HUMAN": 6,
+    "machine->MACHINE": 234
+   },
+   "per_file": {
+    "human_hello": {
+     "MACHINE/MAXWORDS": 35,
+     "HUMAN/HUMAN": 6,
+     "MACHINE/LONGGREETING": 18,
+     "NOTSURE/TOOLONG": 1
+    },
+    "human_hello_2words": {
+     "MACHINE/MAXWORDS": 42,
+     "MACHINE/LONGGREETING": 15,
+     "HUMAN/HUMAN": 3
+    },
+    "human_late_hello": {
+     "MACHINE/MAXWORDS": 26,
+     "HUMAN/HUMAN": 11,
+     "MACHINE/LONGGREETING": 23
+    },
+    "human_long_greeting": {
+     "MACHINE/MAXWORDS": 39,
+     "MACHINE/LONGGREETING": 19,
+     "HUMAN/HUMAN": 2
+    },
+    "human_noisy": {
+     "MACHINE/LONGGREETING": 16,
+     "HUMAN/HUMAN": 42,
+     "MACHINE/MAXWORDS": 2
+    },
+    "human_quiet": {
+     "MACHINE/INITIALSILENCE": 38,
+     "HUMAN/HUMAN": 6,
+     "MACHINE/LONGGREETING": 14,
+     "NOTSURE/TOOLONG": 2
+    },
+    "machine_greeting": {
+     "MACHINE/MAXWORDS": 45,
+     "MACHINE/LONGGREETING": 15
+    },
+    "machine_long_word": {
+     "MACHINE/MAXWORDS": 36,
+     "MACHINE/LONGGREETING": 24
+    },
+    "machine_short": {
+     "MACHINE/MAXWORDS": 36,
+     "MACHINE/LONGGREETING": 19,
+     "HUMAN/HUMAN": 5
+    },
+    "machine_silent_start": {
+     "MACHINE/INITIALSILENCE": 27,
+     "MACHINE/MAXWORDS": 8,
+     "HUMAN/HUMAN": 1,
+     "MACHINE/LONGGREETING": 24
+    }
+   }
+  },
+  {
+   "mode": "local",
+   "calls": 600,
+   "lost": 0,
+   "latency_ms": {
+    "p50": 2049.8569011688232,
+    "p90": 2565.7441854477033,
+    "p99": 3020.0061988830566,
+    "max": 3039.745807647705
+   },
+   "latency_ms_by_label": {
+    "human": 2060.0199699401855,
+    "machine": 2049.8569011688232
+   },
+   "false_machine_rate": 0.5,
+   "false_human_rate": 0.25,
+   "notsure": 0,
+   "oracle": false,
+   "cpu_s": 15.58,
+   "cpu_ms_per_call_total": 25.966666666666665,
+   "cpu_ms_per_call_detection": 5.792719519631421,
+   "cpu_pct_avg": 180.00685878341437,
+   "cpu_pct_per_concurrent_call_detection": 0.20078226788361125,
+   "rss_mb": 192.84375,
+   "confusion": {
+    "human->HUMAN": 180,
+    "human->MACHINE": 180,
+    "machine->HUMAN": 60,
+    "machine->MACHINE": 180
+   },
+   "per_file": {
+    "human_hello": {
+     "HUMAN/HUMAN": 60
+    },
+    "human_hello_2words": {
+     "HUMAN/HUMAN": 60
+    },
+    "human_late_hello": {
+     "HUMAN/HUMAN": 60
+    },
+    "human_long_greeting": {
+     "MACHINE/LONGGREETING": 60
+    },
+    "human_noisy": {
+     "MACHINE/LONGGREETING": 60
+    },
+    "human_quiet": {
+     "MACHINE/INITIALSILENCE": 60
+    },
+    "machine_greeting": {
+     "MACHINE/MAXWORDS": 60
+    },
+    "machine_long_word": {
+     "MACHINE/LONGGREETING": 60
+    },
+    "machine_short": {
+     "HUMAN/HUMAN": 60
+    },
+    "machine_silent_start": {
+     "MACHINE/INITIALSILENCE": 60
+    }
+   }
+  },
+  {
+   "mode": "ws",
+   "calls": 600,
+   "lost": 0,
+   "latency_ms": {
+    "p50": 1580.0001621246338,
+    "p90": 1620.0108289718628,
+    "p99": 1700.0029683113098,
+    "max": 1900.0189304351807
+   },
+   "latency_ms_by_label": {
+    "human": 1580.0001621246338,
+    "machine": 1580.0001621246338
+   },
+   "false_machine_rate": 0.0,
+   "false_human_rate": 0.0,
+   "notsure": 0,
+   "oracle": true,
+   "cpu_s": 13.8,
+   "cpu_ms_per_call_total": 23.0,
+   "cpu_ms_per_call_detection": 8.075472937399773,
+   "cpu_pct_avg": 216.41681322183624,
+   "cpu_pct_per_concurrent_call_detection": 0.3799278518198348,
+   "rss_mb": 231.19921875,
+   "confusion": {
+    "human->HUMAN": 360,
+    "machine->MACHINE": 240
+   },
+   "per_file": {
+    "human_hello": {
+     "HUMAN/HUMAN": 60
+    },
+    "human_hello_2words": {
+     "HUMAN/HUMAN": 60
+    },
+    "human_late_hello": {
+     "HUMAN/HUMAN": 60
+    },
+    "human_long_greeting": {
+     "HUMAN/HUMAN": 60
+    },
+    "human_noisy": {
+     "HUMAN/HUMAN": 60
+    },
+    "human_quiet": {
+     "HUMAN/HUMAN": 60
+    },
+    "machine_greeting": {
+     "MACHINE/MACHINE": 60
+    },
+    "machine_long_word": {
+     "MACHINE/MACHINE": 60
+    },
+    "machine_short": {
+     "MACHINE/MACHINE": 60
+    },
+    "machine_silent_start": {
+     "MACHINE/MACHINE": 60
+    }
+   }
+  },
+  {
+   "mode": "compare",
+   "calls": 600,
+   "lost": 0,
+   "latency_ms": {
+    "p50": 1560.0039958953857,
+    "p90": 1600.8079051971436,
+    "p99": 1819.1800117492676,
+    "max": 1918.5349941253662
+   },
+   "latency_ms_by_label": {
+    "human": 1560.0039958953857,
+    "machine": 1560.0030422210693
+   },
+   "false_machine_rate": 0.0,
+   "false_human_rate": 0.0,
+   "notsure": 0,
+   "oracle": true,
+   "cpu_s": 13.69,
+   "cpu_ms_per_call_total": 22.816666666666666,
+   "cpu_ms_per_call_detection": 8.013968737413526,
+   "cpu_pct_avg": 216.93013137226353,
+   "cpu_pct_per_concurrent_call_detection": 0.38096522082257034,
+   "rss_mb": 232.421875,
+   "confusion": {
+    "human->HUMAN": 360,
+    "machine->MACHINE": 240
+   },
+   "per_file": {
+    "human_hello": {
+     "HUMAN/HUMAN": 60
+    },
+    "human_hello_2words": {
+     "HUMAN/HUMAN": 60
+    },
+    "human_late_hello": {
+     "HUMAN/HUMAN": 60
+    },
+    "human_long_greeting": {
+     "HUMAN/HUMAN": 60
+    },
+    "human_noisy": {
+     "HUMAN/HUMAN": 60
+    },
+    "human_quiet": {
+     "HUMAN/HUMAN": 60
+    },
+    "machine_greeting": {
+     "MACHINE/MACHINE": 60
+    },
+    "machine_long_word": {
+     "MACHINE/MACHINE": 60
+    },
+    "machine_short": {
+     "MACHINE/MACHINE": 60
+    },
+    "machine_silent_start": {
+     "MACHINE/MACHINE": 60
+    }
+   }
+  }
+ ]
+}

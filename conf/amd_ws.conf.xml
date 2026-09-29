@@ -1,0 +1,114 @@
+<!--
+  amd_ws.conf.xml - configuration for mod_amd_ws (answering machine detection over WebSocket)
+
+  Install as <conf_dir>/autoload_configs/amd_ws.conf.xml   (packages: /etc/freeswitch/autoload_configs/)
+  Every parameter is optional; the values below are the built-in defaults, except
+  host (built-in default 127.0.0.1).
+
+  Apply changes:  fs_cli -x 'amd_ws reload'      (running calls keep their settings)
+  Inspect:        fs_cli -x 'amd_ws status'
+
+  Per-call overrides, strongest first:
+    1. dialplan arguments   amd_ws host,port,vid,timeout_ms,playfile,options
+    2. channel variables    amd_ws_host amd_ws_port amd_ws_vid amd_ws_timeout_ms amd_ws_connect_timeout_ms
+                            amd_ws_mode amd_ws_local_fallback amd_ws_compare_wait_local amd_ws_tls amd_ws_trace
+                            amd_ws_phone amd_ws_country_code amd_ws_caller_id amd_ws_playdelay_ms
+    3. this file
+-->
+<configuration name="amd_ws.conf" description="Answering machine detection over WebSocket">
+  <settings>
+
+    <!-- ===== Service endpoint =============================================== -->
+    <!-- AMD service host (name or IP; IPv6 literal without brackets) and port.
+         The module connects to ws://host:port/path, or wss:// when tls=true or option s. -->
+    <param name="host" value="api.amdy.io"/>
+    <param name="port" value="2700"/>
+    <param name="path" value="/"/>
+
+    <!-- TLS.  tls_verify checks the certificate chain against tls_cafile, or the
+         first system bundle found (/etc/ssl/certs/ca-certificates.crt,
+         /etc/pki/tls/certs/ca-bundle.crt, /etc/ssl/ca-bundle.pem, /etc/ssl/cert.pem).
+         tls_check_hostname also checks the certificate name against host. -->
+    <param name="tls" value="false"/>
+    <param name="tls_verify" value="true"/>
+    <param name="tls_check_hostname" value="true"/>
+    <param name="tls_cafile" value=""/>
+
+    <!-- ===== Detection mode ================================================= -->
+    <!-- ws       stream to the service; its verdict is the result (default)
+         local    built-in energy detector only (mod_amd / Asterisk app_amd algorithm), no network
+         compare  stream to the service AND run the local detector; the service's verdict is the
+                  result, the local verdict is reported in amd_ws_local_* and the event
+         Per call: options L (local) and C (compare), or ${amd_ws_mode}. -->
+    <param name="mode" value="ws"/>
+
+    <!-- On CONNECTION_ERROR / PROCESSING_ERROR use the local detector's verdict instead of
+         HUMAN.  Off by default: the service contract is "unreachable = HUMAN" so the call
+         reaches an agent.  Per call: option F (on) / f (off). -->
+    <param name="local_fallback" value="false"/>
+
+    <!-- compare mode only: return only after the local detector has decided too, so both
+         verdicts are recorded (for A/B measurements; adds up to total_analysis_time). -->
+    <param name="compare_wait_local" value="false"/>
+
+    <!-- ===== Timing (milliseconds) ========================================== -->
+    <!-- Detection window from the first captured audio frame.  No verdict by then:
+         NOTSURE/SERVER_TIMEOUT, or NOTSURE/NOAUDIODATA-<ms> if no audio arrived at all.
+         Dialplan argument 4 overrides it. -->
+    <param name="timeout_ms" value="10000"/>
+
+    <!-- DNS + TCP + TLS + WebSocket upgrade.  Exceeded: HUMAN/CONNECTION_ERROR at once.
+         Audio captured meanwhile is kept and sent when the socket is up.  Option c(ms). -->
+    <param name="connect_timeout_ms" value="10000"/>
+
+    <!-- After timeout_ms without a verdict: flush the remaining audio and wait this long for
+         a reply before SERVER_TIMEOUT.  0 = return at once (amd.py behaviour). -->
+    <param name="result_grace_ms" value="0"/>
+
+    <!-- ===== Audio transport (amdy.io amd.py protocol) ====================== -->
+    <!-- Marks (ms from the first captured frame) at which everything accumulated is sent as
+         one binary frame of 8 kHz 16-bit mono PCM.  Strictly increasing, at most 16. -->
+    <param name="send_schedule" value="500,1000,1500,2000,3000,4000,5000,6000,7000,8000,9000"/>
+
+    <!-- After the last mark: send when chunk_bytes have accumulated (8000 B = 500 ms) or
+         fallback_interval_ms passed since the last send with anything pending. -->
+    <param name="chunk_bytes" value="8000"/>
+    <param name="fallback_interval_ms" value="1000"/>
+
+    <!-- EOF finalisation: after this many schedule marks in a row with no audio at all (the
+         far end stopped sending media; digital silence IS audio), send {"eof":1} and wait
+         eof_wait_ms for one reply: HUMAN / MACHINE / NOTSURE-EOF_INCONCLUSIVE /
+         NOTSURE-EOF_ERROR.  Only after some audio was sent.  0 disables. -->
+    <param name="eof_no_audio_streak" value="2"/>
+    <param name="eof_wait_ms" value="3000"/>
+
+    <!-- Put the caller id the callee sees into the config frame as "caller_id"
+         (effective_caller_id_number, else origination_caller_id_number, else
+         caller_id_number; empty and "Unknown" are never sent).  Option i(cid) sets it. -->
+    <param name="send_caller_id" value="true"/>
+
+    <!-- Extra members for the config frame, as a JSON object; spliced after caller_id.
+         Example: {"short_no_greeting":true,"detection_mode":"aggressive"} -->
+    <param name="extra_config" value=""/>
+
+    <!-- ===== Channel handling =============================================== -->
+    <!-- Answer an unanswered channel before detecting (option a / A per call). -->
+    <param name="answer" value="true"/>
+    <!-- Delay before the playfile argument starts playing (option d(ms)). -->
+    <param name="playdelay_ms" value="0"/>
+    <!-- Per-call event lines at INFO (connect, each chunk, each reply, verdict).  Option v. -->
+    <param name="trace" value="false"/>
+
+    <!-- ===== Local detector (mod_amd parameter names and defaults) ========== -->
+    <param name="silence_threshold" value="256"/>
+    <param name="initial_silence" value="2500"/>
+    <param name="greeting" value="1500"/>
+    <param name="after_greeting_silence" value="800"/>
+    <param name="total_analysis_time" value="5000"/>
+    <param name="min_word_length" value="100"/>
+    <param name="between_words_silence" value="50"/>
+    <param name="maximum_number_of_words" value="3"/>
+    <param name="maximum_word_length" value="5000"/>
+
+  </settings>
+</configuration>

@@ -1,0 +1,4 @@
+{
+  global: mod_amd_ws_module_interface;
+  local: *;
+};

@@ -1,0 +1,429 @@
+#!/usr/bin/env bash
+# mod_amd_ws installer -- answering machine detection over WebSocket for FreeSWITCH.
+#
+# GENERATED FILE: edit tools/install.sh.in and the sources, then run
+# `make installer` (tools/gen-installer.sh).  The module sources are embedded
+# at the end of this file, so the script needs nothing else from the network
+# except build packages and, only when the switch has no development headers,
+# the matching FreeSWITCH source tarball from GitHub.
+#
+#   curl -fsSL https://raw.githubusercontent.com/nikvb/mod_amd_ws/main/install.sh | sudo bash -s -- -y
+#
+# Options:
+#   -y, --yes            do not ask before installing build packages
+#   --dry-run            detect and print the plan; change nothing
+#   --build-only         build mod_amd_ws.so into the current directory; install nothing
+#   --host H --port P    endpoint written into a NEW amd_ws.conf.xml (default api.amdy.io:2700)
+#   --tls                write tls=true into a NEW amd_ws.conf.xml
+#   --no-config          do not create amd_ws.conf.xml
+#   --no-autoload        do not add mod_amd_ws to modules.conf.xml
+#   --no-load            do not load/reload the module in the running switch
+#   --moddir DIR         module directory (default: asked from the running switch)
+#   --confdir DIR        configuration directory (default: asked from the running switch)
+#   --fs-src DIR         use headers from this FreeSWITCH source tree (src/include)
+#   --no-devpkg          do not try the distribution's FreeSWITCH dev package for headers
+#   --uninstall          unload, remove the module and the autoload line (config kept)
+#   -h, --help
+set -euo pipefail
+
+MOD_VERSION="@VERSION@"
+PAYLOAD_SHA256="@SHA256@"
+LOG=/var/log/mod_amd_ws-install.log
+
+YES=0 DRYRUN=0 BUILDONLY=0 NOCONFIG=0 NOAUTOLOAD=0 NOLOAD=0 UNINSTALL=0 NODEVPKG=0
+CFG_HOST="api.amdy.io" CFG_PORT="2700" CFG_TLS=0
+OPT_MODDIR="" OPT_CONFDIR="" OPT_FSSRC=""
+WORK=""
+
+say()  { printf '%s\n' "$*"; [ -w "$(dirname "$LOG")" ] && printf '%s %s\n' "$(date '+%F %T')" "$*" >>"$LOG" 2>/dev/null || true; }
+ok()   { say "[OK]   $*"; }
+info() { say "[..]   $*"; }
+warn() { say "[WARN] $*"; }
+die()  { say "[FAIL] $*"; say "Log: $LOG"; exit 1; }
+
+usage() { sed -n '2,28p' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null | sed 's/^# \{0,1\}//' || true; }
+
+parse_args() {
+	while [ $# -gt 0 ]; do
+		case "$1" in
+			-y|--yes) YES=1 ;;
+			--dry-run) DRYRUN=1 ;;
+			--build-only) BUILDONLY=1 ;;
+			--host) CFG_HOST=${2:?--host needs a value}; shift ;;
+			--port) CFG_PORT=${2:?--port needs a value}; shift ;;
+			--tls) CFG_TLS=1 ;;
+			--no-config) NOCONFIG=1 ;;
+			--no-autoload) NOAUTOLOAD=1 ;;
+			--no-load) NOLOAD=1 ;;
+			--moddir) OPT_MODDIR=${2:?}; shift ;;
+			--confdir) OPT_CONFDIR=${2:?}; shift ;;
+			--fs-src) OPT_FSSRC=${2:?}; shift ;;
+			--uninstall) UNINSTALL=1 ;;
+			--no-devpkg) NODEVPKG=1 ;;
+			-h|--help) usage; exit 0 ;;
+			*) die "unknown option: $1 (see --help)" ;;
+		esac
+		shift
+	done
+	case "$CFG_PORT" in ''|*[!0-9]*) die "--port must be a number" ;; esac
+	case "$CFG_HOST" in *[\"\<\>\&\ ]*) die "--host contains invalid characters" ;; esac
+}
+
+cleanup() { [ -n "$WORK" ] && rm -rf "$WORK"; }
+
+# ---------------------------------------------------------------------------
+# embedded sources
+extract_payload() {
+	local got
+	WORK=$(mktemp -d /tmp/mod_amd_ws.XXXXXX)
+	trap cleanup EXIT
+	payload | base64 -d >"$WORK/src.tgz" || die "embedded payload is corrupt"
+	got=$(sha256sum "$WORK/src.tgz" | awk '{print $1}')
+	[ "$got" = "$PAYLOAD_SHA256" ] || die "embedded payload checksum mismatch ($got)"
+	mkdir -p "$WORK/src"
+	tar -xzf "$WORK/src.tgz" -C "$WORK/src"
+	ok "sources mod_amd_ws $MOD_VERSION (sha256 ${PAYLOAD_SHA256:0:12}...)"
+	# shellcheck source=/dev/null
+	. "$WORK/src/fs-detect.sh"
+}
+
+# ---------------------------------------------------------------------------
+# packages
+PM=""
+detect_pm() {
+	if command -v apt-get >/dev/null 2>&1; then PM=apt
+	elif command -v dnf >/dev/null 2>&1; then PM=dnf
+	elif command -v yum >/dev/null 2>&1; then PM=yum
+	elif command -v zypper >/dev/null 2>&1; then PM=zypper
+	elif command -v apk >/dev/null 2>&1; then PM=apk
+	fi
+}
+
+have_openssl_headers() {
+	printf '#include <openssl/ssl.h>\n#include <openssl/x509v3.h>\n' | gcc -E -x c - >/dev/null 2>&1
+}
+
+need_packages() {
+	local miss=()
+	command -v gcc >/dev/null 2>&1 || miss+=(gcc)
+	command -v make >/dev/null 2>&1 || miss+=(make)
+	tar --version 2>/dev/null | grep -q 'GNU tar' || miss+=(tar)          # busybox tar lacks --wildcards
+	command -v base64 >/dev/null 2>&1 || miss+=(coreutils)
+	command -v nm >/dev/null 2>&1 || miss+=(binutils)
+	command -v gcc >/dev/null 2>&1 && ! have_openssl_headers && miss+=(openssl-dev)
+	command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1 || miss+=(curl)
+	printf '%s\n' "${miss[@]}"
+}
+
+install_packages() {
+	local miss list
+	miss=$(need_packages)
+	[ -z "$miss" ] && { ok "build tools present (gcc, make, OpenSSL headers)"; return 0; }
+	detect_pm
+	case "$PM" in
+		apt) list="build-essential pkg-config libssl-dev binutils curl ca-certificates" ;;
+		dnf|yum) list="gcc make pkgconfig openssl-devel binutils curl tar" ;;
+		zypper) list="gcc make pkg-config libopenssl-devel binutils curl tar" ;;
+		apk) list="build-base pkgconf openssl-dev binutils curl tar coreutils" ;;
+		*) die "missing: $(echo "$miss" | tr '\n' ' ') and no known package manager; install them and rerun" ;;
+	esac
+	if [ "$DRYRUN" = 1 ]; then info "would install packages ($PM): $list"; return 0; fi
+	[ "$(id -u)" = 0 ] || die "missing $(echo "$miss" | tr '\n' ' '); run as root to install: $list"
+	if [ "$YES" != 1 ] && [ -t 0 ]; then
+		read -r -p "Install build packages with $PM: $list ? [y/N] " a
+		case "$a" in y|Y|yes) ;; *) die "cancelled" ;; esac
+	fi
+	info "installing $list"
+	local pkgs
+	read -r -a pkgs <<<"$list"
+	case "$PM" in
+		apt) DEBIAN_FRONTEND=noninteractive apt-get update -qq >>"$LOG" 2>&1 || true
+		     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${pkgs[@]}" >>"$LOG" 2>&1 ;;
+		dnf|yum) "$PM" install -y "${pkgs[@]}" >>"$LOG" 2>&1 ;;
+		zypper) zypper --non-interactive install "${pkgs[@]}" >>"$LOG" 2>&1 ;;
+		apk) apk add --no-cache "${pkgs[@]}" >>"$LOG" 2>&1 ;;
+	esac || die "package installation failed (see $LOG)"
+	[ -z "$(need_packages)" ] || die "still missing after install: $(need_packages | tr '\n' ' ')"
+	ok "build packages installed"
+}
+
+# ---------------------------------------------------------------------------
+# headers
+INCDIR=""
+fetch() {  # url dest
+	if command -v curl >/dev/null 2>&1; then curl -fsSL --retry 2 -o "$2" "$1"; else wget -q -O "$2" "$1"; fi
+}
+
+gen_am_config() {  # dir
+	local bits
+	bits=$(getconf LONG_BIT 2>/dev/null || echo 64)
+	if [ "$bits" = 64 ]; then
+		cat >"$1/switch_am_config.h" <<'EOF'
+#ifndef SWITCH_AM_CONFIG_H
+#define SWITCH_AM_CONFIG_H
+#define SWITCH_INT_16  short
+#define SWITCH_INT_32  int
+#define SWITCH_INT_64  long
+#define SWITCH_SIZE_T  size_t
+#define SWITCH_SSIZE_T ssize_t
+#define SWITCH_SIZEOF_VOIDP 8
+#define SWITCH_PREFIX_DIR "/usr"
+#define SWITCH_SSIZE_T_FMT "ld"
+#define SWITCH_SIZE_T_FMT "ld"
+#define SWITCH_INT64_T_FMT "ld"
+#define SWITCH_UINT64_T_FMT "lu"
+#endif
+EOF
+	else
+		cat >"$1/switch_am_config.h" <<'EOF'
+#ifndef SWITCH_AM_CONFIG_H
+#define SWITCH_AM_CONFIG_H
+#define SWITCH_INT_16  short
+#define SWITCH_INT_32  int
+#define SWITCH_INT_64  long long
+#define SWITCH_SIZE_T  size_t
+#define SWITCH_SSIZE_T ssize_t
+#define SWITCH_SIZEOF_VOIDP 4
+#define SWITCH_PREFIX_DIR "/usr"
+#define SWITCH_SSIZE_T_FMT "d"
+#define SWITCH_SIZE_T_FMT "d"
+#define SWITCH_INT64_T_FMT "lld"
+#define SWITCH_UINT64_T_FMT "llu"
+#endif
+EOF
+	fi
+}
+
+headers_from_tree() {  # source tree -> $WORK/include
+	local t=$1
+	[ -f "$t/src/include/switch.h" ] || return 1
+	mkdir -p "$WORK/include"
+	cp "$t"/src/include/*.h "$WORK/include/"
+	cp "$t"/libs/libteletone/src/*.h "$WORK/include/" 2>/dev/null || true
+	[ -f "$WORK/include/switch_am_config.h" ] || gen_am_config "$WORK/include"
+	INCDIR="$WORK/include"
+}
+
+find_headers() {
+	if [ -n "$OPT_FSSRC" ]; then
+		headers_from_tree "$OPT_FSSRC" || die "--fs-src $OPT_FSSRC has no src/include/switch.h"
+		ok "headers from source tree $OPT_FSSRC"
+		return 0
+	fi
+	if [ -n "$FS_INCDIR" ]; then
+		INCDIR=$FS_INCDIR
+		ok "headers $INCDIR"
+		return 0
+	fi
+	# the distribution's dev package, only when the switch itself came from that package manager
+	local pkg=""
+	case "$FS_PKG" in
+		deb) pkg=libfreeswitch-dev ;;
+		rpm) pkg=freeswitch-devel ;;
+		apk) pkg=freeswitch-dev ;;
+	esac
+	[ "$NODEVPKG" = 1 ] && pkg=""
+	if [ -n "$pkg" ]; then
+		if [ "$DRYRUN" = 1 ]; then
+			info "would try the $pkg package, else the v$FS_VERSION source tarball"
+			return 0
+		fi
+		info "trying the $pkg package"
+		case "$FS_PKG" in
+			deb) DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$pkg" >>"$LOG" 2>&1 || true ;;
+			rpm) { command -v dnf >/dev/null && dnf install -y "$pkg" || yum install -y "$pkg"; } >>"$LOG" 2>&1 || true ;;
+			apk) apk add --no-cache "$pkg" >>"$LOG" 2>&1 || true ;;
+		esac
+		detect_headers || true
+		if [ -n "$FS_INCDIR" ]; then INCDIR=$FS_INCDIR; ok "headers $INCDIR ($pkg)"; return 0; fi
+		warn "$pkg is not available from the configured repositories"
+	fi
+	# the matching source tarball
+	[ -n "$FS_VERSION" ] || die "no FreeSWITCH headers and the version is unknown; pass --fs-src /path/to/freeswitch-source"
+	local url="https://github.com/signalwire/freeswitch/archive/refs/tags/v${FS_VERSION}.tar.gz"
+	if [ "$DRYRUN" = 1 ]; then info "would fetch headers from $url"; return 0; fi
+	info "no development headers installed; fetching them from $url"
+	fetch "$url" "$WORK/fs.tgz" || die "cannot download $url (no network?); install the dev package or pass --fs-src"
+	mkdir -p "$WORK/fs"
+	tar -xzf "$WORK/fs.tgz" -C "$WORK/fs" --strip-components=1 --wildcards '*/src/include/*' '*/libs/libteletone/src/*' 2>>"$LOG" \
+		|| die "unexpected tarball layout ($url)"
+	headers_from_tree "$WORK/fs" || die "tarball has no src/include/switch.h"
+	ok "headers from FreeSWITCH v$FS_VERSION source"
+}
+
+# ---------------------------------------------------------------------------
+# build
+build() {
+	local libs lib_dir out
+	[ -n "$FS_LIB" ] || die "cannot find libfreeswitch.so used by $FS_BIN (ldd)"
+	lib_dir=$(dirname "$FS_LIB")
+	libs="$FS_LIB"
+	info "building against $INCDIR, linking $FS_LIB"
+	out=$(make -C "$WORK/src" FS_INCLUDES="-I$INCDIR" FS_LIBS="$libs" FS_MODDIR="${FS_MODDIR:-/nonexistent}" 2>&1) \
+		|| { printf '%s\n' "$out" >>"$LOG"; printf '%s\n' "$out" | tail -20; die "build failed"; }
+	printf '%s\n' "$out" >>"$LOG"
+	if printf '%s\n' "$out" | grep -qi 'warning:'; then warn "compiler warnings (see $LOG)"; fi
+	ok "built mod_amd_ws.so"
+
+	# gates
+	local undef
+	undef=$(LD_LIBRARY_PATH="$lib_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ldd -r "$WORK/src/mod_amd_ws.so" 2>&1 | grep -i 'undefined symbol' || true)
+	[ -z "$undef" ] || { printf '%s\n' "$undef" >>"$LOG"; die "undefined symbols against $FS_LIB (headers do not match the running switch?)"; }
+	ok "no undefined symbols against $(basename "$FS_LIB")"
+	local exp
+	exp=$(nm -D --defined-only "$WORK/src/mod_amd_ws.so" | awk '$2 !~ /^[AUw]$/ {print $3}' | sort -u | tr '\n' ' ')
+	[ "$exp" = "mod_amd_ws_module_interface " ] || die "unexpected exported symbols: $exp"
+	ok "exports only mod_amd_ws_module_interface"
+	# OpenSSL: the module and the switch must use the same libssl
+	local fs_ssl mod_ssl
+	fs_ssl=$(ldd "$FS_LIB" 2>/dev/null | awk '/libssl\.so/ && !f {print $3; f=1}' || true)
+	mod_ssl=$(LD_LIBRARY_PATH="$lib_dir" ldd "$WORK/src/mod_amd_ws.so" 2>/dev/null | awk '/libssl\.so/ && !f {print $3; f=1}' || true)
+	if [ -n "$fs_ssl" ] && [ -n "$mod_ssl" ] && [ "$(readlink -f "$fs_ssl")" != "$(readlink -f "$mod_ssl")" ]; then
+		die "FreeSWITCH uses $fs_ssl but the module links $mod_ssl; build with the same OpenSSL (SSL_CFLAGS/SSL_LIBS)"
+	fi
+	ok "OpenSSL ${mod_ssl:-(static)} matches the switch"
+}
+
+# ---------------------------------------------------------------------------
+# install
+install_module() {
+	local dst="$FS_MODDIR/mod_amd_ws.so"
+	[ -d "$FS_MODDIR" ] || die "module directory $FS_MODDIR does not exist"
+	if [ -f "$dst" ]; then
+		cp -p "$dst" "$dst.bak.$(date +%Y%m%d%H%M%S)"
+		ok "backed up the old module to $dst.bak.*"
+	fi
+	install -m 0755 "$WORK/src/mod_amd_ws.so" "$dst.new"
+	mv -f "$dst.new" "$dst"          # atomic replace: a loaded copy keeps its old inode
+	ok "installed $dst"
+}
+
+install_config() {
+	local d="$FS_CONFDIR/autoload_configs" f
+	f="$d/amd_ws.conf.xml"
+	[ "$NOCONFIG" = 1 ] && return 0
+	[ -d "$d" ] || { warn "no $d; skipping amd_ws.conf.xml"; return 0; }
+	if [ -f "$f" ]; then ok "kept existing $f"; return 0; fi
+	sed -e "s|<param name=\"host\" value=\"[^\"]*\"/>|<param name=\"host\" value=\"$CFG_HOST\"/>|" \
+	    -e "s|<param name=\"port\" value=\"[^\"]*\"/>|<param name=\"port\" value=\"$CFG_PORT\"/>|" \
+	    "$WORK/src/conf/amd_ws.conf.xml" >"$f"
+	[ "$CFG_TLS" = 1 ] && sed -i 's|<param name="tls" value="false"/>|<param name="tls" value="true"/>|' "$f"
+	chmod 0644 "$f"
+	# match the owner of the other config files (freeswitch user on packaged installs)
+	chown --reference="$d" "$f" 2>/dev/null || true
+	ok "created $f (host $CFG_HOST:$CFG_PORT)"
+}
+
+install_autoload() {
+	local f="$FS_CONFDIR/autoload_configs/modules.conf.xml"
+	[ "$NOAUTOLOAD" = 1 ] && return 0
+	[ -f "$f" ] || { warn "no $f; add <load module=\"mod_amd_ws\"/> to your modules configuration yourself"; return 0; }
+	if grep -q 'module="mod_amd_ws"' "$f"; then
+		if grep -q '<!--[^>]*module="mod_amd_ws"' "$f"; then warn "mod_amd_ws is commented out in $f; left as is"; else ok "mod_amd_ws already in $f"; fi
+		return 0
+	fi
+	grep -q '</modules>' "$f" || { warn "no </modules> in $f; add the load line yourself"; return 0; }
+	cp -p "$f" "$f.bak.$(date +%Y%m%d%H%M%S)"
+	sed -i 's|</modules>|    <load module="mod_amd_ws"/>\n  </modules>|' "$f"
+	ok "added mod_amd_ws to $f (loads at startup)"
+}
+
+load_module() {
+	[ "$NOLOAD" = 1 ] && return 0
+	if [ "$FS_RUNNING" != 1 ]; then info "FreeSWITCH is not running; mod_amd_ws loads at the next start"; return 0; fi
+	if [ -z "$FS_CLI" ]; then warn "no fs_cli; load it yourself: load mod_amd_ws"; return 0; fi
+	local r
+	if [ "$(fs_x 'module_exists mod_amd_ws' | tr -d '\r\n ')" = "true" ]; then
+		r=$(fs_x 'reload mod_amd_ws' || true)
+		case "$r" in
+			*+OK*) ok "reloaded mod_amd_ws in the running switch" ;;
+			*"in use"*) warn "mod_amd_ws is in use by calls; the new file is installed, run 'fs_cli -x \"reload mod_amd_ws\"' when idle" ;;
+			*) warn "reload said: $(echo "$r" | head -2 | tr '\n' ' ')" ;;
+		esac
+	else
+		r=$(fs_x 'load mod_amd_ws' || true)
+		case "$r" in
+			*+OK*) ok "loaded mod_amd_ws in the running switch" ;;
+			*) die "load failed: $(echo "$r" | head -3 | tr '\n' ' ') (see the FreeSWITCH log)" ;;
+		esac
+	fi
+	fs_x 'amd_ws status' | sed -n '1,4p' | sed 's/^/       /' || true
+}
+
+uninstall() {
+	[ "$(id -u)" = 0 ] || die "run as root"
+	[ -n "$FS_MODDIR" ] || die "cannot find the module directory (--moddir)"
+	if [ "$FS_RUNNING" = 1 ] && [ -n "$FS_CLI" ] && [ "$(fs_x 'module_exists mod_amd_ws' | tr -d '\r\n ')" = "true" ]; then
+		case "$(fs_x 'unload mod_amd_ws' || true)" in
+			*+OK*) ok "unloaded mod_amd_ws" ;;
+			*) die "cannot unload mod_amd_ws (in use by calls?); retry when idle" ;;
+		esac
+	fi
+	rm -f "$FS_MODDIR/mod_amd_ws.so" && ok "removed $FS_MODDIR/mod_amd_ws.so"
+	local f="$FS_CONFDIR/autoload_configs/modules.conf.xml"
+	if [ -f "$f" ] && grep -q '<load module="mod_amd_ws"/>' "$f"; then
+		cp -p "$f" "$f.bak.$(date +%Y%m%d%H%M%S)"
+		sed -i '/<load module="mod_amd_ws"\/>/d' "$f"
+		ok "removed the autoload line from $f"
+	fi
+	info "kept $FS_CONFDIR/autoload_configs/amd_ws.conf.xml"
+}
+
+# ---------------------------------------------------------------------------
+main() {
+	parse_args "$@"
+	if [ "$DRYRUN" = 1 ] || [ "$BUILDONLY" = 1 ] || [ "$(id -u)" != 0 ]; then LOG=/tmp/mod_amd_ws-install.log; fi
+	: >"$LOG" 2>/dev/null || LOG=/dev/null
+	say "mod_amd_ws $MOD_VERSION installer $( [ "$DRYRUN" = 1 ] && echo '(dry run: nothing is changed)')"
+	[ "$DRYRUN" = 1 ] || [ "$BUILDONLY" = 1 ] || [ "$(id -u)" = 0 ] || die "run as root (or use --dry-run / --build-only)"
+
+	extract_payload
+	[ -n "$OPT_MODDIR" ] && FS_MODDIR=$OPT_MODDIR
+	[ -n "$OPT_CONFDIR" ] && FS_CONFDIR=$OPT_CONFDIR
+	detect_all || true
+	[ -n "$OPT_MODDIR" ] && FS_MODDIR=$OPT_MODDIR
+	[ -n "$OPT_CONFDIR" ] && FS_CONFDIR=$OPT_CONFDIR
+
+	[ -n "$FS_BIN" ] || die "FreeSWITCH not found (no running freeswitch, none in PATH or the usual places)"
+	ok "FreeSWITCH ${FS_VERSION:-(version unknown)} at $FS_BIN ($FS_PKG install$( [ "$FS_RUNNING" = 1 ] && echo ", running, pid $FS_PID" || echo ", not running"))"
+	ok "module dir ${FS_MODDIR:-(unknown)}   conf dir ${FS_CONFDIR:-(unknown)}"
+	case "$FS_VERSION" in
+		1.10.*|1.11.*|"") ;;
+		*) warn "tested with FreeSWITCH 1.10.x/1.11.x; $FS_VERSION may work" ;;
+	esac
+
+	if [ "$UNINSTALL" = 1 ]; then uninstall; exit 0; fi
+
+	install_packages
+	find_headers
+	if [ "$DRYRUN" = 1 ]; then
+		info "would build mod_amd_ws.so and install it into ${FS_MODDIR:-?}"
+		[ "$NOCONFIG" = 1 ] || info "would create ${FS_CONFDIR:-?}/autoload_configs/amd_ws.conf.xml if absent (host $CFG_HOST:$CFG_PORT)"
+		[ "$NOAUTOLOAD" = 1 ] || info "would add <load module=\"mod_amd_ws\"/> to modules.conf.xml if absent"
+		[ "$NOLOAD" = 1 ] || info "would load/reload mod_amd_ws in the running switch"
+		exit 0
+	fi
+	build
+	if [ "$BUILDONLY" = 1 ]; then
+		cp "$WORK/src/mod_amd_ws.so" ./mod_amd_ws.so
+		ok "wrote $(pwd)/mod_amd_ws.so (nothing installed)"
+		exit 0
+	fi
+	[ -n "$FS_MODDIR" ] || die "cannot determine the module directory; pass --moddir"
+	install_module
+	[ -n "$FS_CONFDIR" ] && install_config && install_autoload
+	load_module
+	say ""
+	say "Done.  Dialplan example:"
+	say '  <action application="amd_ws" data=""/>          (endpoint from amd_ws.conf.xml)'
+	say '  <action application="log" data="INFO AMD ${AMDSTATUS}/${AMDCAUSE} ${AMDSTATS}"/>'
+	say "Check:  fs_cli -x 'amd_ws status'      Docs: https://github.com/nikvb/mod_amd_ws"
+}
+
+payload() {
+	cat <<'__MOD_AMD_WS_PAYLOAD__'
+@PAYLOAD@
+__MOD_AMD_WS_PAYLOAD__
+}
+
+main "$@"

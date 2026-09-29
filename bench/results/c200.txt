@@ -1,0 +1,63 @@
+FreeSWITCH: FreeSWITCH Version 1.10.12-release+git~20240802T210227Z~a88d069d6f~64bit (git a88d069 2024-08-02 21:02:27Z 64bit)
+host: Intel(R) Xeon(R) CPU E5-2420 0 @ 1.90GHz, 12 CPUs; corpus: 10 files (/tmp/amdws-bench-d6t69_ic/audio/bench); calls/mode 600, concurrency 200; ws: mock oracle, verdict after 2 acks, reply delay 0 ms
+baseline  done: 600 calls, lost 0, p50 2510 ms, CPU 14.1 s
+mod_amd   done: 600 calls, lost 0, p50 1960 ms, CPU 14.3 s
+local     done: 600 calls, lost 0, p50 2050 ms, CPU 15.6 s
+ws        done: 600 calls, lost 0, p50 1580 ms, CPU 13.8 s
+compare   done: 600 calls, lost 0, p50 1560 ms, CPU 13.7 s
+
+| mode | calls | latency p50 / p90 / p99 ms | human p50 | machine p50 | false MACHINE (humans) | false HUMAN (machines) | NOTSURE | CPU ms per call (detection) | CPU % per concurrent call | RSS MB |
+|---|---|---|---|---|---|---|---|---|---|---|
+| baseline | 600 | 2510 / 2520 / 2520 | 2500 | 2520 | - | - | 0 | - | - | 178 |
+| mod_amd | 600 | 1960 / 3564 / 4900 | 2040 | 1890 | 80% | 2% | 3 | 4.71 | 0.145 | 178 |
+| local | 600 | 2050 / 2566 / 3020 | 2060 | 2050 | 50% | 25% | 0 | 5.79 | 0.201 | 193 |
+| ws | 600 | 1580 / 1620 / 1700 | 1580 | 1580 | 0% (oracle) | 0% (oracle) | 0 | 8.08 | 0.380 | 231 |
+| compare | 600 | 1560 / 1601 / 1819 | 1560 | 1560 | 0% (oracle) | 0% (oracle) | 0 | 8.01 | 0.381 | 232 |
+
+Verdicts per corpus file:
+  mod_amd:
+    human_hello              MACHINE/MAXWORDS x35, MACHINE/LONGGREETING x18, HUMAN/HUMAN x6, NOTSURE/TOOLONG x1
+    human_hello_2words       MACHINE/MAXWORDS x42, MACHINE/LONGGREETING x15, HUMAN/HUMAN x3
+    human_late_hello         MACHINE/MAXWORDS x26, MACHINE/LONGGREETING x23, HUMAN/HUMAN x11
+    human_long_greeting      MACHINE/MAXWORDS x39, MACHINE/LONGGREETING x19, HUMAN/HUMAN x2
+    human_noisy              HUMAN/HUMAN x42, MACHINE/LONGGREETING x16, MACHINE/MAXWORDS x2
+    human_quiet              MACHINE/INITIALSILENCE x38, MACHINE/LONGGREETING x14, HUMAN/HUMAN x6, NOTSURE/TOOLONG x2
+    machine_greeting         MACHINE/MAXWORDS x45, MACHINE/LONGGREETING x15
+    machine_long_word        MACHINE/MAXWORDS x36, MACHINE/LONGGREETING x24
+    machine_short            MACHINE/MAXWORDS x36, MACHINE/LONGGREETING x19, HUMAN/HUMAN x5
+    machine_silent_start     MACHINE/INITIALSILENCE x27, MACHINE/LONGGREETING x24, MACHINE/MAXWORDS x8, HUMAN/HUMAN x1
+  local:
+    human_hello              HUMAN/HUMAN x60
+    human_hello_2words       HUMAN/HUMAN x60
+    human_late_hello         HUMAN/HUMAN x60
+    human_long_greeting      MACHINE/LONGGREETING x60
+    human_noisy              MACHINE/LONGGREETING x60
+    human_quiet              MACHINE/INITIALSILENCE x60
+    machine_greeting         MACHINE/MAXWORDS x60
+    machine_long_word        MACHINE/LONGGREETING x60
+    machine_short            HUMAN/HUMAN x60
+    machine_silent_start     MACHINE/INITIALSILENCE x60
+  ws:
+    human_hello              HUMAN/HUMAN x60
+    human_hello_2words       HUMAN/HUMAN x60
+    human_late_hello         HUMAN/HUMAN x60
+    human_long_greeting      HUMAN/HUMAN x60
+    human_noisy              HUMAN/HUMAN x60
+    human_quiet              HUMAN/HUMAN x60
+    machine_greeting         MACHINE/MACHINE x60
+    machine_long_word        MACHINE/MACHINE x60
+    machine_short            MACHINE/MACHINE x60
+    machine_silent_start     MACHINE/MACHINE x60
+  compare:
+    human_hello              HUMAN/HUMAN x60
+    human_hello_2words       HUMAN/HUMAN x60
+    human_late_hello         HUMAN/HUMAN x60
+    human_long_greeting      HUMAN/HUMAN x60
+    human_noisy              HUMAN/HUMAN x60
+    human_quiet              HUMAN/HUMAN x60
+    machine_greeting         MACHINE/MACHINE x60
+    machine_long_word        MACHINE/MACHINE x60
+    machine_short            MACHINE/MACHINE x60
+    machine_silent_start     MACHINE/MACHINE x60
+
+wrote bench/results/c200.json

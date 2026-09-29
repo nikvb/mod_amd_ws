@@ -1,0 +1,25 @@
+name: ci
+on:
+  push:
+  pull_request:
+jobs:
+  alpine-freeswitch:
+    runs-on: ubuntu-latest
+    container: alpine:3.20
+    steps:
+      - name: packages
+        run: |
+          apk add --no-cache git bash make tar gzip coreutils build-base pkgconf openssl-dev openssl binutils python3 py3-pip \
+            freeswitch freeswitch-dev shellcheck
+          pip3 install --break-system-packages "websockets<13"
+      - uses: actions/checkout@v4
+      - name: build (warnings are errors)
+        run: make CFLAGS="-O2 -g -Werror"
+      - name: installer is up to date
+        run: make check-installer
+      - name: shellcheck
+        run: shellcheck -S warning install.sh fs-detect.sh tools/*.sh test/unit.sh
+      - name: unit tests
+        run: make test-unit
+      - name: FreeSWITCH integration tests
+        run: FS_BIN=/usr/bin/freeswitch python3 test/fs_test.py
