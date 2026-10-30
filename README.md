@@ -16,6 +16,71 @@ live traffic, or fall back to it when the service is unreachable.
 | Dependencies | OpenSSL (already linked by FreeSWITCH). No libwebsockets, no libks. |
 | License | MPL 1.1 (as FreeSWITCH). The local detector derives from seanbright/mod_amd (CC0). |
 
+## Step-by-step install
+
+You need a FreeSWITCH 1.10.x or 1.11.x server, a root shell on it, and an
+amdy.io account (https://app.amdy.io).
+
+**1. Register the server's public IP with amdy.io.** The service accepts
+calls by source IP; there is no API key in the module. Find the IP, then sign
+in to https://app.amdy.io, open **IP management** and add it.
+
+```bash
+curl -s https://api.ipify.org; echo
+```
+
+**2. Check that the server can reach the service** (outbound TCP 2700):
+
+```bash
+timeout 5 bash -c '</dev/tcp/api.amdy.io/2700' && echo "port 2700 open"
+```
+
+**3. Install the module** (builds from this repository's source and loads it):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nikvb/mod_amd_ws/main/install.sh | bash -s -- -y
+```
+
+**4. Check that it loaded:**
+
+```bash
+fs_cli -x 'module_exists mod_amd_ws'      # prints: true
+fs_cli -x 'amd_ws status'                 # endpoint api.amdy.io:2700, counters
+```
+
+**5. Add detection to your outbound dialplan**, right after the call is
+answered (full example in [Dialplan](#dialplan)):
+
+```xml
+<action application="amd_ws" data=""/>
+<action application="log" data="INFO AMD ${AMDSTATUS}/${AMDCAUSE}"/>
+<action application="execute_extension" data="amd_${AMDSTATUS} XML ${context}"/>
+```
+
+**6. Reload the dialplan:**
+
+```bash
+fs_cli -x 'reloadxml'
+```
+
+**7. Place a test call** to a phone you can answer, and read the result:
+
+```bash
+grep 'AMD_WS:' /var/log/freeswitch/freeswitch.log | tail -5
+```
+
+Answer and say "hello": expect `HUMAN`. Let it go to voicemail: expect
+`MACHINE`. Detections also appear in your amdy.io dashboard.
+
+**8. Route on the result.** `AMDSTATUS` is `HUMAN`, `MACHINE`, `NOTSURE` or
+`HANGUP`; `AMDCAUSE` says why ([Status and cause](#status-and-cause)). Create
+the `amd_HUMAN`, `amd_MACHINE` and `amd_NOTSURE` extensions your campaign
+needs. If the service cannot be reached, calls return `HUMAN` so no call is
+lost.
+
+To remove the module: add `--uninstall` to the command in step 3. Problems:
+[Troubleshooting](#troubleshooting).
+
 ## Install
 
 On the FreeSWITCH server, as root:
