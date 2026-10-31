@@ -103,6 +103,19 @@ have_openssl_headers() {
 	printf '#include <openssl/ssl.h>\n#include <openssl/x509v3.h>\n' | gcc -E -x c - >/dev/null 2>&1
 }
 
+# Version of the package that installed the running switch's binary (FS_PKG
+# was detected from the same owner), for pinning the dev package to it.
+installed_fs_pkg_version() {
+	local owner
+	case "$FS_PKG" in
+		deb) owner=$(dpkg -S "$FS_BIN" 2>/dev/null | head -1 | cut -d: -f1)
+		     [ -n "$owner" ] && dpkg-query -W -f='${Version}' "$owner" 2>/dev/null ;;
+		rpm) rpm -qf --qf '%{VERSION}-%{RELEASE}' "$FS_BIN" 2>/dev/null ;;
+		apk) apk info --who-owns "$FS_BIN" 2>/dev/null | sed -n 's/.* is owned by //p' \
+		       | sed -nE 's/^.*-([0-9][^-]*-r[0-9]+)$/\1/p' ;;
+	esac
+}
+
 need_packages() {
 	local miss=()
 	command -v gcc >/dev/null 2>&1 || miss+=(gcc)
@@ -112,7 +125,7 @@ need_packages() {
 	command -v nm >/dev/null 2>&1 || miss+=(binutils)
 	command -v gcc >/dev/null 2>&1 && ! have_openssl_headers && miss+=(openssl-dev)
 	command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1 || miss+=(curl)
-	printf '%s\n' "${miss[@]}"
+	printf '%s\n' ${miss[@]+"${miss[@]}"}   # bash < 4.4 (CentOS 7): an empty "${a[@]}" is unbound under set -u
 }
 
 install_packages() {
@@ -215,8 +228,10 @@ find_headers() {
 		ok "headers $INCDIR"
 		return 0
 	fi
-	# the distribution's dev package, only when the switch itself came from that package manager
-	local pkg=""
+	# the distribution's dev package, only when the switch itself came from that
+	# package manager, and only at the exact version of the installed switch: an
+	# unpinned install can pull a newer core under the running switch.
+	local pkg="" ver=""
 	case "$FS_PKG" in
 		deb) pkg=libfreeswitch-dev ;;
 		rpm) pkg=freeswitch-devel ;;
@@ -224,15 +239,22 @@ find_headers() {
 	esac
 	[ "$NODEVPKG" = 1 ] && pkg=""
 	if [ -n "$pkg" ]; then
+		ver=$(installed_fs_pkg_version || true)
+		if [ -z "$ver" ]; then
+			warn "cannot tell the installed FreeSWITCH package version; not installing $pkg (it could upgrade the core)"
+			pkg=""
+		fi
+	fi
+	if [ -n "$pkg" ]; then
 		if [ "$DRYRUN" = 1 ]; then
-			info "would try the $pkg package, else the v$FS_VERSION source tarball"
+			info "would try the $pkg package at version $ver, else the v$FS_VERSION source tarball"
 			return 0
 		fi
-		info "trying the $pkg package"
+		info "trying the $pkg package at version $ver (no upgrades)"
 		case "$FS_PKG" in
-			deb) DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$pkg" >>"$LOG" 2>&1 || true ;;
-			rpm) { command -v dnf >/dev/null && dnf install -y "$pkg" || yum install -y "$pkg"; } >>"$LOG" 2>&1 || true ;;
-			apk) apk add --no-cache "$pkg" >>"$LOG" 2>&1 || true ;;
+			deb) DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-upgrade "$pkg=$ver" >>"$LOG" 2>&1 || true ;;
+			rpm) { command -v dnf >/dev/null && dnf install -y "$pkg-$ver" || yum install -y "$pkg-$ver"; } >>"$LOG" 2>&1 || true ;;
+			apk) apk add --no-cache "$pkg=$ver" >>"$LOG" 2>&1 || true ;;
 		esac
 		detect_headers || true
 		if [ -n "$FS_INCDIR" ]; then INCDIR=$FS_INCDIR; ok "headers $INCDIR ($pkg)"; return 0; fi

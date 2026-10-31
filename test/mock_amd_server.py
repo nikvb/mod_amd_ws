@@ -92,6 +92,8 @@ PRESETS = {
     "/slow": {"handshake": "3000", "status": "HUMAN"},
     "/reject": {"reject": "1"},
     "/close": {"close": "2", "closecode": "1011"},
+    # verdict, CLOSE(1000) and FIN in one write: the client must still deliver the verdict
+    "/burst_close": {"status": "MACHINE", "after": "1", "burstclose": "1"},
     "/big": {"status": "HUMAN", "pad": "5000"},
     "/fragmented": {"status": "HUMAN", "json": "1", "frag": "3"},
     "/ping": {"status": "HUMAN", "ping": "1"},
@@ -273,6 +275,16 @@ async def handler(ws):
                 if rec["result_sent"] is None and nchunks > after:
                     if beh.get("oracle"):
                         result_text = "MACHINE" if "machine" in (rec["vid"] or "").lower() else "HUMAN"
+                    if beh.get("burstclose"):
+                        p = result_text.encode()
+                        hdr = bytes([0x81, len(p)]) if len(p) < 126 else bytes([0x81, 126]) + len(p).to_bytes(2, "big")
+                        ws.transport.write(hdr + p + bytes([0x88, 2, 0x03, 0xE8]))
+                        ws.transport.close()
+                        rec["result_sent"] = result_text
+                        rec["t_result"] = ms()
+                        rec["server_closed"] = True
+                        log("burst close: result + CLOSE(1000) + FIN in one write")
+                        break
                     await reply(result_text)
                     rec["result_sent"] = result_text if len(result_text) <= 300 else result_text[-40:]
                     rec["t_result"] = ms()

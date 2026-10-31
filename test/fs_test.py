@@ -70,6 +70,9 @@ SCENARIOS = [
     ("wideband",      "human",      "/human?after=2",   "127.0.0.1,{port},V-wb,10000",               "HUMAN",   r"^HUMAN$",            1300, 2800, ["stats", "bytes8k"]),
     ("background",    "human",      "/human?after=2",   "BG:127.0.0.1,{port},V-bg,10000",            "HUMAN",   r"^HUMAN$",            0, 3500, ["bg"]),
     ("bg_stop",       "human",      "/silent",          "BGSTOP:127.0.0.1,{port},V-bgs,10000",       "NOTSURE", r"^STOPPED$",          0, 3500, ["bg"]),
+    # result hook that adds a media bug (uuid_record): ran inside the READ callback before
+    # 2026-10-31 and deadlocked the call on the bug lock; now runs from CLOSE
+    ("bg_record_hook","human",      "/human?after=2",   "BGREC:127.0.0.1,{port},V-bgrec,10000",      "HUMAN",   r"^HUMAN$",            0, 3500, ["bg"]),
     ("concurrency",   "human",      "/human?after=2",   "MULTI20:127.0.0.1,{port},V-multi,10000",    "HUMAN",   r"^HUMAN$",            1300, 4000, []),
 ]
 
@@ -251,6 +254,13 @@ def write_config(d, esl_port, audio, tls_cafile):
      <action application="amd_ws" data="${amdargs}"/>
      <action application="hangup"/>
    </condition></extension>
+   <extension name="bgrecside"><condition field="destination_number" expression="^bgrecside$">
+     <action application="set" data="api_on_amd_ws_result=uuid_record ${uuid} start /tmp/amdws_bgrec_${uuid}.wav"/>
+     <action application="set" data="api_on_amd_ws_result_2=uuid_setvar ${uuid} amd_api_ran \\\\\\${AMDSTATUS}"/>
+     <action application="set" data="bg_start=${uuid_amd_ws(${uuid} start ${amdargs})}"/>
+     <action application="playback" data="silence_stream://6000"/>
+     <action application="hangup"/>
+   </condition></extension>
    <extension name="bgside"><condition field="destination_number" expression="^bgside$">
      <action application="set" data="api_on_amd_ws_result=uuid_setvar ${uuid} amd_api_ran \\\\\\${AMDSTATUS}"/>
      <action application="set" data="bg_start=${uuid_amd_ws(${uuid} start ${amdargs})}"/>
@@ -396,6 +406,8 @@ def main():
         count = 1
         if data.startswith("BGSTOP:"):
             kind, data = "bgstop", data[7:]
+        elif data.startswith("BGREC:"):
+            kind, data = "bgrec", data[6:]
         elif data.startswith("BG:"):
             kind, data = "bg", data[3:]
         elif data.startswith("MULTI"):
@@ -419,7 +431,7 @@ def main():
                 vars_ += "," + c[4:]
         if name == "wideband":
             vars_ += ",loopback_initial_codec=L16@16000h"
-        dest = "bgside" if kind in ("bg", "bgstop") else "amdside"
+        dest = {"bg": "bgside", "bgstop": "bgside", "bgrec": "bgrecside"}.get(kind, "amdside")
         t_before = time.time()
         uuids = []
         for i in range(count):
@@ -436,11 +448,13 @@ def main():
         for u in uuids:
             ev = esl.wait_event(lambda e, u=u: e.get("Unique-ID") == u, (tmax / 1000.0) + 12)
             evs.append(ev)
-        if kind == "bg" and evs[0]:
+        if kind in ("bg", "bgrec") and evs[0]:
             time.sleep(0.3)
             ran = esl.api("uuid_getvar %s amd_api_ran" % uuids[0]).strip()
             if ran != evs[0].get("AMD-Status"):
                 checks = checks + ["__apion_fail:%s" % ran]
+            if kind == "bgrec" and not os.path.exists("/tmp/amdws_bgrec_%s.wav" % uuids[0]):
+                checks = checks + ["__apion_fail:no recording started by the hook"]
         # tidy up
         for u in uuids:
             esl.api("uuid_kill %s" % u)

@@ -760,7 +760,7 @@ static int parse_one(amdws_client_t *ws, int *consumed)
 
 int amdws_read(amdws_client_t *ws, amdws_msg_t *msg)
 {
-	int rc, consumed, fill_rc = WS_OK, filled = 0;
+	int rc, consumed, fill_rc = WS_OK, filled = 0, eof_rc = 0;
 
 	if (!ws) return WS_ERR;
 	if (ws->closed && !ws->rx_len) return WS_CLOSED;
@@ -789,15 +789,17 @@ int amdws_read(amdws_client_t *ws, amdws_msg_t *msg)
 			return rc;
 		}
 		if (consumed) continue;           /* control frame handled, look again */
+		if (eof_rc) return eof_rc;        /* buffer drained after EOF: report it now */
 		if (filled) break;                /* already read the socket this call */
 		fill_rc = rx_fill(ws);
 		filled = 1;
 		if (fill_rc != WS_OK) {
-			/* parse what we have first; report EOF afterwards */
-			rc = parse_one(ws, &consumed);
-			if (rc == 1) { filled = 0; ws->closed = 1; continue; }
+			/* The socket is done, but the bytes read with the EOF may still hold
+			 * whole messages (verdict + CLOSE + FIN in one burst). Go round so
+			 * the parse at the top hands them over; report EOF only once the
+			 * buffer has nothing left. */
 			ws->closed = 1;
-			return fill_rc == WS_CLOSED ? WS_CLOSED : WS_ERR;
+			eof_rc = fill_rc == WS_CLOSED ? WS_CLOSED : WS_ERR;
 		}
 	}
 	return 0;

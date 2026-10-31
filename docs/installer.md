@@ -25,7 +25,9 @@ hand.
    - `pkg-config freeswitch`, or `include/freeswitch` next to the binary;
    - the distribution's dev package (`libfreeswitch-dev`, `freeswitch-devel`,
      `freeswitch-dev`), but only when FreeSWITCH itself came from that package
-     manager;
+     manager, and only at the exact version of the installed FreeSWITCH package
+     with no upgrades (an unpinned install could upgrade the core under the
+     running switch); if that version is not available, the tarball below;
    - the source tarball of the **exact running version** from GitHub
      (`signalwire/freeswitch/archive/refs/tags/v<version>.tar.gz`). The
      installer extracts `src/include` and `libs/libteletone/src` and writes

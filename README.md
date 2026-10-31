@@ -231,8 +231,9 @@ fs_cli -x 'uuid_amd_ws <uuid> stop'
 The detection runs on a media bug while the channel does whatever it is doing:
 a bridge, an IVR or playback. When the verdict is known, the module sets the
 same variables and fires the event below. It also runs every channel variable
-named `api_on_amd_ws_result*` as an API command. Its arguments are expanded
-when it runs. `set` expands its value once more, so write `\\\${...}` for a
+named `api_on_amd_ws_result*` as an API command, after the media bug has
+closed, so a command may start or stop another media bug (`uuid_record`,
+`uuid_amd_ws`). Its arguments are expanded when it runs. `set` expands its value once more, so write `\\\${...}` for a
 variable that must be expanded only when the command runs:
 
 ```xml
