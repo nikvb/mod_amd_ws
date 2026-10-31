@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.0.1 (2026-10-31)
+
+Fixes from a code review. No change to the wire protocol or the result vocabulary.
+
+- A verdict that arrived in the same read as the server's CLOSE/FIN was dropped
+  and the call returned `HUMAN`/`PROCESSING_ERROR` (a machine sent to an agent).
+  Every complete message in the buffer is now handed over before EOF is
+  reported. Unit case `burst_close`.
+- `api_on_amd_ws_result*` commands run from the media bug's CLOSE callback, after
+  the core released the bug lock. Before, they ran inside the READ callback, and
+  a command that adds or removes a media bug (`uuid_record`, `uuid_amd_ws`)
+  deadlocked the call. Scenario `bg_record_hook`.
+- An invalid `send_schedule` restored the default schedule only in name: it reset
+  the whole configuration read so far (host fell back to 127.0.0.1, so every call
+  returned `CONNECTION_ERROR`). Now only the schedule falls back to the default.
+- Installer: the distribution dev package is pinned to the installed FreeSWITCH
+  package version and never upgrades anything; if that version is not available
+  the matching source tarball is used, as before.
+- Installer: works on bash older than 4.4 (CentOS/RHEL 7), where an empty array
+  under `set -u` aborted the run when all build tools were already installed.
+
 ## 1.0.0 (2026-09-29)
 
 First release.

@@ -35,6 +35,7 @@ run eof_ack      "/eof_ack"         NOTSURE '^EOF_INCONCLUSIVE$'  -after none "$
 run timeout      "/silent"          NOTSURE '^SERVER_TIMEOUT$'    -t 3000 "$A/human.sln"
 run noaudio      "/silent"          NOTSURE '^NOAUDIODATA-2000$'  -t 2000 /dev/null
 run close        "/close?after=1"   HUMAN   '^PROCESSING_ERROR$'  "$A/machine.sln"
+run burst_close  "/burst_close"     MACHINE '^MACHINE$'           "$A/machine.sln"
 run hangup       "/silent"          HANGUP  '^HANGUP$'            -after hangup:0 "$A/hello_then_nothing.sln"
 run refused      "/human"           HUMAN   '^CONNECTION_ERROR$'  -p 1 "$A/human.sln"
 run local_human  "/human"           HUMAN   '^HUMAN$'             -m local "$A/human.sln"

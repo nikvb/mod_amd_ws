@@ -20,7 +20,7 @@
 #include "amd_engine.h"
 #include "ws_client.h"
 
-#define MOD_AMD_WS_VERSION "1.0.0"
+#define MOD_AMD_WS_VERSION "1.0.1"
 #define AMD_WS_EVENT "amd_ws::result"
 #define AMD_WS_PRIVATE "_amd_ws_call_"
 #define AMD_WS_SYNTAX "[host[,port[,vid[,timeout_ms[,playfile[,options]]]]]]"
@@ -133,9 +133,15 @@ static const char *mode_str(amd_mode_t m)
 	return m == AMD_MODE_LOCAL ? "local" : m == AMD_MODE_COMPARE ? "compare" : "ws";
 }
 
-static void set_defaults(amd_engine_cfg_t *c)
+static void set_default_schedule(amd_engine_cfg_t *c)
 {
 	static const int sched[] = { 500, 1000, 1500, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000 };
+	memcpy(c->schedule, sched, sizeof(sched));
+	c->nschedule = (int) (sizeof(sched) / sizeof(sched[0]));
+}
+
+static void set_defaults(amd_engine_cfg_t *c)
+{
 	memset(c, 0, sizeof(*c));
 	switch_copy_string(c->host, "127.0.0.1", sizeof(c->host));
 	c->port = 2700;
@@ -145,8 +151,7 @@ static void set_defaults(amd_engine_cfg_t *c)
 	c->timeout_ms = 10000;
 	c->connect_timeout_ms = 10000;
 	c->result_grace_ms = 0;
-	memcpy(c->schedule, sched, sizeof(sched));
-	c->nschedule = (int) (sizeof(sched) / sizeof(sched[0]));
+	set_default_schedule(c);
 	c->chunk_bytes = 8000;
 	c->fallback_interval_ms = 1000;
 	c->eof_no_audio_streak = 2;
@@ -190,7 +195,7 @@ static switch_status_t load_config(void)
 						switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING,
 										  "amd_ws.conf: send_schedule=%s invalid (strictly increasing ms, max %d), using the default\n",
 										  v, AMD_MAX_SCHEDULE);
-						set_defaults(&c); /* restore schedule only */
+						set_default_schedule(&c); /* only the schedule: host, port, ... read so far stay */
 					}
 				}
 				else if (!strcasecmp(n, "chunk_bytes")) c.chunk_bytes = int_in(v, 320, 160000, 8000, n);
@@ -474,9 +479,10 @@ static void apply_result(amd_call_t *call)
 		switch_event_fire(&ev);
 	}
 
-	if (call->background && switch_channel_up(channel)) {
-		switch_channel_api_on(channel, "api_on_amd_ws_result");
-	}
+	/* api_on_amd_ws_result runs from the CLOSE callback (bug_callback), not
+	 * here: in the READ callback the session's media bug lock is held, so a
+	 * hook that adds or removes a media bug (uuid_record, uuid_amd_ws, ...)
+	 * would deadlock the call. */
 }
 
 /* ------------------------------------------------------------------------ */
@@ -571,6 +577,9 @@ static switch_bool_t bug_callback(switch_media_bug_t *bug, void *user_data, swit
 				else amd_engine_hangup(call->engine, NULL);
 				apply_result(call);
 			}
+			/* CLOSE runs after the core released the bug lock (prune/remove),
+			 * so the hooks may add or remove media bugs. */
+			if (switch_channel_up(call->channel)) switch_channel_api_on(call->channel, "api_on_amd_ws_result");
 			call_end(call);
 		}
 		break;
